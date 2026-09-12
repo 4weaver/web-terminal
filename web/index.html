@@ -99,9 +99,72 @@ document.getElementById('keys').addEventListener('click', (e) => {
   if (btn.dataset.arrow) { send(arrows[btn.dataset.arrow]); setLatch(false); }
 });
 
-// A latched Ctrl applies to the next hardware keypress too.
+// IME-delivered keys (Trime and others) arrive with an empty event.code, because
+// the IME injects a KeyEvent with no hardware scan code for the browser to map.
+// ghostty-web's encoder is keyed on event.code — mapKeyCode() is a plain lookup
+// that returns null for "", and handleKeyDown() then returns without sending
+// anything. So EVERY such key is dropped: arrows, Insert, Delete, Esc, Tab, and
+// Ctrl combinations (whose isPrintableCharacter() is also false when ctrlKey is
+// set). Measured on the device: Ctrl sends code="", keyCode=67; ArrowUp sends
+// code="", keyCode=38. A desktop keyboard populates code, so it is unaffected —
+// which is why the empty-code check is the correct trigger and nothing else is.
+//
+// Everything here is therefore keyed on keyCode, never event.code.
+const NAMED_KEYS = {
+  33: '\x1b[5~', // PageUp
+  34: '\x1b[6~', // PageDown
+  35: '\x1b[F',  // End
+  36: '\x1b[H',  // Home
+  37: '\x1b[D',  // Left
+  38: '\x1b[A',  // Up
+  39: '\x1b[C',  // Right
+  40: '\x1b[B',  // Down
+  45: '\x1b[2~', // Insert
+  46: '\x1b[3~', // Delete
+  9: '\t',       // Tab
+  13: '\r',      // Enter
+  27: '\x1b',    // Escape
+  8: '\x7f',     // Backspace — xterm sends DEL, not BS
+};
+
 term.attachCustomKeyEventHandler((event) => {
-  if (event.type !== 'keydown' || !ctrlLatched) return false;
+  if (event.type !== 'keydown') return false;
+
+  // Only take over keys the encoder cannot handle. A non-empty code means a
+  // real keyboard, which the encoder handles correctly — leave it alone.
+  if (event.code === '') {
+    const named = NAMED_KEYS[event.keyCode];
+    if (named !== undefined) {
+      send(named);
+      setLatch(false);
+      return true;
+    }
+    if (event.ctrlKey && !event.metaKey) {
+      // Ctrl+A-Z -> the classic control byte. Ctrl+Alt folds the same way (an
+      // ESC prefix is the readline/emacs convention for Alt, but Alt+Ctrl is
+      // not vocabulary any terminal binds, and emitting a bare letter here —
+      // which is what the encoder did — is plainly wrong.
+      if (event.keyCode >= 65 && event.keyCode <= 90) {
+        send(String.fromCharCode(event.keyCode & 0x1f));
+        setLatch(false);
+        return true;
+      }
+      if (event.keyCode === 219) { // Ctrl+[
+        send('\x1b');
+        setLatch(false);
+        return true;
+      }
+    }
+    if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.length === 1) {
+      // Alt/Meta is an ESC prefix, the standard convention.
+      send('\x1b' + event.key);
+      setLatch(false);
+      return true;
+    }
+  }
+
+  // A latched Ctrl applies to the next hardware keypress too.
+  if (!ctrlLatched) return false;
   if (event.ctrlKey || event.altKey || event.metaKey) return false;
   const ch = event.key;
   if (ch.length !== 1) return false;

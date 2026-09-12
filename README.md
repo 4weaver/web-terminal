@@ -99,6 +99,7 @@ Working and verified:
 
 ```bash
 go test ./...                                       # replay buffer + boundary snap
+node web/test/ime-keys.test.mjs                     # IME key fold (web/index.html)
 go run ./cmd/wstest ws://127.0.0.1:20008/ws         # protocol + resume, live server
 ```
 
