@@ -1,0 +1,22 @@
+/* Copyright (c) 2026 anansi
+ *
+ * Part of a fork of web-terminal (https://github.com/code-yeongyu/web-terminal),
+ * Copyright (c) 2026 YeonGyu Kim, MIT licensed. The frontend architecture this
+ * stylesheet serves derives from that project; this file is new work.
+ * Full license text: LICENSE at the repo root.
+ */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: #1a1b26; color: #a9b1d6;
+  font-family: system-ui, sans-serif; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+#terminal { flex: 1; min-height: 0; overflow: hidden; padding: 4px; }
+#keys { display: flex; gap: 6px; padding: 6px; overflow-x: auto;
+  background: #16161e; border-top: 1px solid #292e42;
+  padding-bottom: max(6px, env(safe-area-inset-bottom)); }
+#keys button { flex: 0 0 auto; min-width: 48px; height: 40px; font-size: 14px;
+  background: #292e42; color: #a9b1d6; border: 1px solid #3b4261;
+  border-radius: 6px; touch-action: manipulation; }
+#keys button[data-active="true"] { background: #7aa2f7; color: #16161e; }
+#status { font-size: 11px; padding: 2px 8px; background: #16161e; color: #565f89; }
+#status[data-state="connected"] { color: #9ece6a; }
+#status[data-state="reconnecting"] { color: #e0af68; }

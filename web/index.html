@@ -1,0 +1,117 @@
+<!doctype html>
+<!--
+  Copyright (c) 2026 YeonGyu Kim
+  Copyright (c) 2026 anansi
+
+  Part of a fork of web-terminal (https://github.com/code-yeongyu/web-terminal),
+  Copyright (c) 2026 YeonGyu Kim, MIT licensed. The viewport strategy
+  (interactive-widget=resizes-content), the mobile key-toolbar concept and the
+  overall frontend architecture derive from that project. This file is new work.
+  Full license text: LICENSE at the repo root.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- interactive-widget=resizes-content is what makes the soft keyboard reflow the
+     layout instead of overlaying it. This is the mobile behavior ttyd lacks. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>terminal</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="terminal"></div>
+
+<!-- Key row: Esc is the key mobile keyboards cannot produce. Ctrl is a sticky
+     latch, so Ctrl then c sends 0x03. -->
+<div id="keys">
+  <button type="button" data-key="esc">esc</button>
+  <button type="button" data-mod="ctrl">ctrl</button>
+  <button type="button" data-arrow="up">↑</button>
+  <button type="button" data-arrow="down">↓</button>
+  <button type="button" data-arrow="left">←</button>
+  <button type="button" data-arrow="right">→</button>
+  <button type="button" data-key="tab">tab</button>
+  <button type="button" data-key="ctrlc">^c</button>
+</div>
+<div id="status">connecting…</div>
+
+<script type="module">
+import { init, Terminal, FitAddon } from './vendor/ghostty-web.js';
+import { TerminalConnection } from './connection.js';
+
+await init();
+
+const fit = new FitAddon();
+const term = new Terminal({
+  cursorBlink: true,
+  fontSize: window.innerWidth < 700 ? 12 : 14,
+  fontFamily: 'JetBrains Mono, Menlo, monospace',
+  theme: { background: '#1a1b26', foreground: '#a9b1d6' },
+  scrollback: 10000,
+});
+term.loadAddon(fit);
+term.open(document.getElementById('terminal'));
+fit.fit();
+fit.observeResize();
+
+const enc = new TextEncoder();
+const status = document.getElementById('status');
+
+const conn = new TerminalConnection({
+  onOutput: (bytes) => term.write(bytes),
+  onReset: () => term.reset(),
+  onState: (s) => { status.textContent = s; status.dataset.state = s; },
+  onExit: (code) => { status.textContent = `exited (${code})`; },
+  onLatency: () => {},
+  onSession: (id) => { status.dataset.session = id; },
+});
+
+// Send input straight through. ghostty-web's own encoder already handles Ctrl
+// combinations — no custom key handler, which is exactly where web-terminal's
+// mobile Ctrl bug lived.
+term.onData((data) => conn.sendInput(data));
+term.onResize(({ cols, rows }) => conn.sendResize(cols, rows));
+
+conn.connect(term.cols, term.rows);
+
+// --- key row ---------------------------------------------------------------
+let ctrlLatched = false;
+const ctrlBtn = document.querySelector('[data-mod="ctrl"]');
+function setLatch(on) {
+  ctrlLatched = on;
+  ctrlBtn.dataset.active = String(on);
+}
+function send(bytes) { conn.sendInput(bytes); }
+
+document.getElementById('keys').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  e.preventDefault();
+  if (btn.dataset.mod === 'ctrl') { setLatch(!ctrlLatched); return; }
+  if (ctrlLatched && btn.dataset.key && btn.dataset.key.length === 1) {
+    send(String.fromCharCode(btn.dataset.key.toUpperCase().charCodeAt(0) & 0x1f));
+    setLatch(false);
+    return;
+  }
+  const map = { esc: '\x1b', tab: '\t', ctrlc: '\x03' };
+  if (btn.dataset.key) { send(map[btn.dataset.key] ?? ''); setLatch(false); return; }
+  const arrows = { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D' };
+  if (btn.dataset.arrow) { send(arrows[btn.dataset.arrow]); setLatch(false); }
+});
+
+// A latched Ctrl applies to the next hardware keypress too.
+term.attachCustomKeyEventHandler((event) => {
+  if (event.type !== 'keydown' || !ctrlLatched) return false;
+  if (event.ctrlKey || event.altKey || event.metaKey) return false;
+  const ch = event.key;
+  if (ch.length !== 1) return false;
+  send(String.fromCharCode(ch.toUpperCase().charCodeAt(0) & 0x1f));
+  setLatch(false);
+  return true;
+});
+
+// Keep the terminal fitted when the soft keyboard opens.
+window.visualViewport?.addEventListener('resize', () => fit.fit());
+</script>
+</body>
+</html>
