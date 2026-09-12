@@ -141,10 +141,44 @@ async function renderApp(): Promise<void> {
   // Returning true suppresses the engine's own send, so exactly one byte goes out.
   created.terminal.attachCustomKeyEventHandler((event) => {
     if (event.type !== "keydown") return false
+    // IME-delivered keys (Trime and others) arrive with an empty event.code: the
+    // IME injects an Android KeyEvent with no hardware scan code for the browser
+    // to map. ghostty-web's encoder is keyed on event.code — mapKeyCode() is a
+    // plain lookup returning null for "" — so every such key is discarded: arrows,
+    // Insert, Delete, Esc, Tab, and Ctrl combinations (whose
+    // isPrintableCharacter() is also false when ctrlKey is set). Measured on the
+    // device: Ctrl sends code="", keyCode=67; ArrowUp sends code="", keyCode=38. A
+    // desktop keyboard populates code and is unaffected, so an empty code is
+    // exactly the condition meaning "the encoder cannot cope". Everything below
+    // is keyed on keyCode, never event.code.
+    if (event.code === "") {
+      const named = IME_NAMED_KEYS[event.keyCode]
+      if (named !== undefined) {
+        created.sendKeys(named)
+        return true
+      }
+      if (event.ctrlKey && !event.metaKey) {
+        if (event.keyCode >= 65 && event.keyCode <= 90) {
+          created.sendKeys(String.fromCharCode(event.keyCode & 0x1f))
+          return true
+        }
+        if (event.keyCode === 219) {
+          created.sendKeys("\u001b") // Ctrl+[
+          return true
+        }
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.length === 1) {
+        // Alt/Meta is an ESC prefix, the standard convention.
+        created.sendKeys(`\u001b${event.key}`)
+        return true
+      }
+    }
     // macOS-style shortcuts ghostty-web passes to the WASM encoder, which emits
     // nothing for SUPER-modified keys. Map them to the control bytes users expect.
     if (event.metaKey) {
-      const byte = META_KEY_BYTES[event.code]
+      // Prefer event.code, but fall back to keyCode for IMEs that leave code
+      // empty — the same gap the fold above handles.
+      const byte = META_KEY_BYTES[event.code] ?? META_KEY_BYTES_BY_KEYCODE[event.keyCode]
       if (byte !== undefined) {
         created.sendKeys(byte)
         return true
@@ -167,6 +201,35 @@ const META_KEY_BYTES: Readonly<Record<string, string>> = {
   Backspace: "\u0015", // Cmd+Delete -> Ctrl+U (kill to start of line)
   ArrowLeft: "\u0001", // Cmd+Left -> Ctrl+A (start of line)
   ArrowRight: "\u0005", // Cmd+Right -> Ctrl+E (end of line)
+}
+
+/** Same Meta-shortcuts keyed by keyCode, for IMEs that send an empty event.code. */
+const META_KEY_BYTES_BY_KEYCODE: Readonly<Record<number, string>> = {
+  8: "\u0015", // Backspace -> Ctrl+U
+  37: "\u0001", // ArrowLeft -> Ctrl+A
+  39: "\u0005", // ArrowRight -> Ctrl+E
+}
+
+/**
+ * Keys sent by IMEs with an empty event.code, mapped from keyCode to the byte
+ * sequence a terminal expects. Keyed on keyCode because the IME leaves code
+ * empty, which is what makes ghostty-web's code-keyed encoder drop them.
+ */
+const IME_NAMED_KEYS: Readonly<Record<number, string>> = {
+  33: "\u001b[5~", // PageUp
+  34: "\u001b[6~", // PageDown
+  35: "\u001b[F", // End
+  36: "\u001b[H", // Home
+  37: "\u001b[D", // Left
+  38: "\u001b[A", // Up
+  39: "\u001b[C", // Right
+  40: "\u001b[B", // Down
+  45: "\u001b[2~", // Insert
+  46: "\u001b[3~", // Delete
+  9: "\t", // Tab
+  13: "\r", // Enter
+  27: "\u001b", // Escape
+  8: "\u007f", // Backspace — xterm sends DEL, not BS
 }
 
 function labelFor(app: TerminalApp | undefined): string {
