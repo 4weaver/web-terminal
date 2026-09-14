@@ -70,6 +70,7 @@ The `WT_*` variable names match the original where the meaning is the same.
 | `WT_SHELL` | `$SHELL` | Session command (run with `-l`) |
 | `WT_STATIC_DIR` | `web` | Directory serving the frontend |
 | `WT_FILES_ROOT` | `$HOME` | File API jail root |
+| `WT_NO_CACHE` | unset | Set to disable static-asset caching — for dev/test instances |
 
 `WT_PASSWORD` / `WT_PASSWORD_HASH` are **not implemented yet** — see Status.
 

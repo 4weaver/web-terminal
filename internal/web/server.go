@@ -31,6 +31,11 @@ type Config struct {
 	FilesRoot string
 	// StaticDir serves the browser frontend. Empty disables static serving.
 	StaticDir string
+	// NoCache disables static-asset caching (WT_NO_CACHE). Every nix store file
+	// carries the epoch mtime, so Last-Modified is identical across builds and a
+	// conditional request is answered 304 forever — the browser keeps a stale
+	// frontend after a redeploy. Turn this on for a dev/test instance.
+	NoCache bool
 	// AllowedOrigins is checked on WebSocket upgrade; empty allows same-origin only.
 	AllowedOrigins []string
 }
@@ -41,6 +46,7 @@ func LoadConfig() (Config, error) {
 		Host:      envOr("WT_HOST", "127.0.0.1"),
 		FilesRoot: envOr("WT_FILES_ROOT", mustHome()),
 		StaticDir: envOr("WT_STATIC_DIR", ""),
+		NoCache:   os.Getenv("WT_NO_CACHE") != "",
 	}
 	port, err := strconv.Atoi(envOr("WT_PORT", "7777"))
 	if err != nil || port < 0 || port > 65535 {
@@ -89,14 +95,28 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/health", s.handleHealth)
 	if s.cfg.StaticDir != "" {
-		fs := http.FileServer(http.Dir(s.cfg.StaticDir))
-		mux.Handle("/", fs)
+		var h http.Handler = http.FileServer(http.Dir(s.cfg.StaticDir))
+		if s.cfg.NoCache {
+			h = noStaleCache(h)
+		}
+		mux.Handle("/", h)
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 		})
 	}
 	return mux
+}
+
+// noStaleCache drops cache validators from static requests so a new build is
+// always picked up (WT_NO_CACHE); see Config.NoCache.
+func noStaleCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Del("If-Modified-Since")
+		r.Header.Del("If-None-Match")
+		w.Header().Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
