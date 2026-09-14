@@ -90,16 +90,20 @@ func ServeWS(ctx context.Context, conn *websocket.Conn, store *session.Store) {
 		if old != nil {
 			old()
 		}
-		d := sess.Attach(
-			func(offset int64, payload []byte) {
-				if err := c.writeBinary(protocol.EncodeOutput(offset, payload)); err != nil {
-					cleanup()
-				}
+		d := sess.Attach(session.AttachOptions{
+			OnOutput: func(offset int64, payload []byte) error {
+				return c.writeBinary(protocol.EncodeOutput(offset, payload))
 			},
-			func(code int) {
+			OnExit: func(code int) {
 				c.sendControl(protocol.ServerControl{T: "exit", Code: &code})
 			},
-		)
+			OnError: func() {
+				// Delivery stopped — a write failed or the client fell too far
+				// behind. Drop the connection so it reconnects and resumes.
+				cleanup()
+				_ = conn.Close(websocket.StatusTryAgainLater, "output backpressure")
+			},
+		})
 		sessMu.Lock()
 		// Attach may race with a concurrent detach; prefer the newer detach.
 		if curSess == sess {

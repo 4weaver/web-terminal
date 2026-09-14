@@ -25,13 +25,29 @@ const (
 	bufferCapacityBytes = 4 * 1024 * 1024
 	// ReconnectTailBytes is how much history a fresh attach replays (no resume offset).
 	ReconnectTailBytes = 256 * 1024
+	// defaultOutputQueueBytes bounds a listener's coalescing queue before the
+	// client is dropped to reconnect into the replay buffer.
+	defaultOutputQueueBytes = 2 * 1024 * 1024
 )
 
-// OutputListener receives output with the cumulative offset it starts at.
-type OutputListener func(offset int64, payload []byte)
+// OutputListener receives coalesced output with the cumulative offset it starts
+// at. It runs on the listener's own goroutine — never the PTY pump — and returns
+// an error to stop delivery (the caller then drops the connection).
+type OutputListener func(offset int64, payload []byte) error
 
 // ExitListener is called once when the process exits.
 type ExitListener func(code int)
+
+// ErrorListener reports a stopped delivery — a write failure or a client that
+// fell past the queue bound. The listener is already detached when it runs.
+type ErrorListener func()
+
+// AttachOptions configures one listener's delivery.
+type AttachOptions struct {
+	OnOutput OutputListener
+	OnExit   ExitListener
+	OnError  ErrorListener
+}
 
 // Session is a PTY-backed terminal session that outlives any single WebSocket.
 type Session struct {
@@ -52,8 +68,8 @@ type Session struct {
 }
 
 type listener struct {
-	onOutput OutputListener
 	onExit   ExitListener
+	delivery *outputDelivery
 }
 
 // newID returns a short random session id, matching the client's preview length.
@@ -116,7 +132,9 @@ func (s *Session) pump() {
 	s.markExited(0)
 }
 
-// fanout delivers output to all attached listeners.
+// fanout delivers output to all attached listeners. Delivery is enqueue-only,
+// so a slow client cannot block this pump goroutine (nor the PTY read, the
+// multiplexer's render loop, or any sibling client).
 func (s *Session) fanout(offset int64, payload []byte) {
 	s.mu.Lock()
 	targets := make([]*listener, 0, len(s.listeners))
@@ -125,7 +143,7 @@ func (s *Session) fanout(offset int64, payload []byte) {
 	}
 	s.mu.Unlock()
 	for _, l := range targets {
-		l.onOutput(offset, payload)
+		l.delivery.enqueue(offset, payload)
 	}
 }
 
@@ -149,23 +167,43 @@ func (s *Session) markExited(code int) {
 	}
 }
 
-// Attach registers listeners and returns a detach function.
-func (s *Session) Attach(onOutput OutputListener, onExit ExitListener) func() {
-	l := &listener{onOutput: onOutput, onExit: onExit}
+// Attach registers a listener and returns a detach function. OnOutput runs on
+// its own goroutine fed by a bounded coalescing queue, so it may block freely.
+func (s *Session) Attach(opts AttachOptions) func() {
+	l := &listener{onExit: opts.OnExit}
+	l.delivery = newOutputDelivery(
+		opts.OnOutput,
+		defaultOutputQueueBytes,
+		func() {
+			// The delivery has already stopped; just unregister and report.
+			s.removeListener(l)
+			if opts.OnError != nil {
+				opts.OnError()
+			}
+		},
+	)
+
 	s.mu.Lock()
 	s.listeners[l] = struct{}{}
 	alive := s.alive
 	code := s.exitCode
 	s.mu.Unlock()
 
-	if !alive {
-		onExit(code)
+	if alive {
+		go l.delivery.run()
+	} else {
+		opts.OnExit(code)
 	}
 	return func() {
-		s.mu.Lock()
-		delete(s.listeners, l)
-		s.mu.Unlock()
+		s.removeListener(l)
+		l.delivery.stop()
 	}
+}
+
+func (s *Session) removeListener(l *listener) {
+	s.mu.Lock()
+	delete(s.listeners, l)
+	s.mu.Unlock()
 }
 
 // Write sends client input to the PTY.
