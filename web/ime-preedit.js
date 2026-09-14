@@ -53,6 +53,7 @@ export function attachImePreedit(container, terminal) {
       return;
     }
     overlay.style.transform = `translate(${cell.x}px, ${cell.y}px)`;
+    overlay.style.fontFamily = terminal.options.fontFamily;
     overlay.style.fontSize = `${terminal.options.fontSize}px`;
     overlay.style.lineHeight = `${cell.height}px`;
     overlay.hidden = false;

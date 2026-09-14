@@ -41,21 +41,38 @@ import { TerminalConnection } from './connection.js';
 import { attachImeInputForwarding } from './ime-input.js';
 import { attachImePreedit } from './ime-preedit.js';
 import { attachMouseInput } from './mouse-input.js';
+import {
+  FONTS, THEMES, loadConfig, loadFont, fontStack,
+  clampSize, readDelta, nextSize, sizeHotkey, withCanvasAlpha,
+} from './appearance.js';
+
+const appearance = await loadConfig();
+const theme = THEMES[appearance.theme];
+const font = FONTS[appearance.font];
+document.documentElement.style.setProperty('--term-bg', theme.background);
+await loadFont(appearance.font);
 
 await init();
 
 const fit = new FitAddon();
+let fitTimer = 0;
+const scheduleFit = () => {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => fit.fit(), 100);
+};
+
 const term = new Terminal({
   cursorBlink: true,
-  fontSize: window.innerWidth < 700 ? 12 : 14,
-  fontFamily: 'JetBrains Mono, Menlo, monospace',
-  theme: { background: '#1a1b26', foreground: '#a9b1d6' },
+  fontSize: clampSize(appearance.fontSize, readDelta(localStorage)),
+  fontFamily: fontStack(font.family),
+  theme,
   scrollback: 10000,
+  allowTransparency: appearance.alpha,
 });
 const terminalEl = document.getElementById('terminal');
 
 term.loadAddon(fit);
-term.open(terminalEl);
+withCanvasAlpha(appearance.alpha, () => term.open(terminalEl));
 fit.fit();
 fit.observeResize();
 
@@ -98,6 +115,20 @@ function setLatch(on) {
   ctrlBtn.dataset.active = String(on);
 }
 function send(bytes) { conn.sendInput(bytes); }
+
+function applyFontSize(px) {
+  if (term.options.fontSize === px) return;
+  term.options.fontSize = px;
+  scheduleFit();
+}
+window.addEventListener("keydown", (event) => {
+  const kind = sizeHotkey(event, { ctrlLatched });
+  if (kind === null) return;
+  event.preventDefault();
+  event.stopPropagation();
+  applyFontSize(nextSize(kind, appearance.fontSize, localStorage));
+  setLatch(false);
+}, true);
 
 document.getElementById('keys').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
