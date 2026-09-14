@@ -52,7 +52,8 @@ func main() {
 	defer stop()
 
 	store.IdleGrace = cfg.IdleTimeout
-	store.StartReaper(ctx, 30*time.Second)
+	store.CloseGrace = cfg.CloseTimeout
+	store.StartReaper(ctx, 5*time.Second)
 
 	go func() {
 		log.Printf("web-terminal-go listening on http://%s (static=%q, sessions=%d)",

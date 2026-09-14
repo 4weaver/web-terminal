@@ -69,6 +69,11 @@ type Session struct {
 	// idleSince is when the session last had zero attached clients (zero while
 	// one is attached). It drives reaping of orphaned sessions.
 	idleSince time.Time
+	// idleGrace overrides the store's IdleGrace for the current idle period (0
+	// means "use the store default"). A deliberate client close sets the short
+	// CloseGrace so the PTY is released promptly instead of waiting out the long
+	// disconnect-survival window.
+	idleGrace time.Duration
 }
 
 type listener struct {
@@ -191,6 +196,7 @@ func (s *Session) Attach(opts AttachOptions) func() {
 	s.mu.Lock()
 	s.listeners[l] = struct{}{}
 	s.idleSince = time.Time{}
+	s.idleGrace = 0
 	alive := s.alive
 	code := s.exitCode
 	s.mu.Unlock()
@@ -211,8 +217,23 @@ func (s *Session) removeListener(l *listener) {
 	delete(s.listeners, l)
 	if len(s.listeners) == 0 {
 		s.idleSince = time.Now()
+		s.idleGrace = 0
 	}
 	s.mu.Unlock()
+}
+
+// MarkClientClosed records that the last client deliberately closed the
+// connection (a page close or reload sends a close frame). Such a session is
+// reaped after grace rather than the store's idle timeout, so a reload can
+// still resume but a closed tab releases its PTY — and the multiplexer client
+// attached to it — promptly.
+func (s *Session) MarkClientClosed(grace time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.listeners) != 0 || s.idleSince.IsZero() {
+		return // a client is still attached, or nothing has detached yet
+	}
+	s.idleGrace = grace
 }
 
 // OrphanedFor reports whether the session has had no attached client for at
@@ -220,20 +241,21 @@ func (s *Session) removeListener(l *listener) {
 func (s *Session) OrphanedFor(grace time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.orphanedLocked(grace)
-}
-
-func (s *Session) orphanedLocked(grace time.Duration) bool {
 	return !s.idleSince.IsZero() && time.Since(s.idleSince) >= grace
 }
 
-// killIfOrphaned kills the session's process if it has had no attached client
-// for at least grace, reporting whether it did. The check and the kill share one
-// lock, so an Attach cannot slip in between and be reaped under it.
-func (s *Session) killIfOrphaned(grace time.Duration) bool {
+// killIfIdle kills the session's process if it has had no attached client for
+// its applicable grace (its own idleGrace, else defaultGrace), reporting whether
+// it did. The check and the kill share one lock, so an Attach cannot slip in
+// between and be reaped under it.
+func (s *Session) killIfIdle(defaultGrace time.Duration) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.orphanedLocked(grace) {
+	grace := s.idleGrace
+	if grace <= 0 {
+		grace = defaultGrace
+	}
+	if grace <= 0 || s.idleSince.IsZero() || time.Since(s.idleSince) < grace {
 		return false
 	}
 	if s.handle != nil {
@@ -287,6 +309,11 @@ type Store struct {
 	// Reap kills it (0 disables). Disconnect survival needs a grace window; an
 	// orphaned session would otherwise hold its PTY child alive forever.
 	IdleGrace time.Duration
+	// CloseGrace is the shorter grace applied when the client closed the
+	// connection deliberately (MarkClientClosed), so a closed tab releases its
+	// multiplexer client promptly while a reload can still reconnect. 0 falls
+	// back to IdleGrace.
+	CloseGrace time.Duration
 }
 
 // NewStore creates an empty session store.
@@ -320,7 +347,7 @@ func (s *Store) Reap() {
 			delete(s.sessions, id)
 			continue
 		}
-		if s.IdleGrace > 0 && sess.killIfOrphaned(s.IdleGrace) {
+		if sess.killIfIdle(s.IdleGrace) {
 			delete(s.sessions, id)
 		}
 	}

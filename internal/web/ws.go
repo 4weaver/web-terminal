@@ -69,18 +69,28 @@ func ServeWS(ctx context.Context, conn *websocket.Conn, store *session.Store) {
 		sessMu    sync.Mutex
 		closeOnce sync.Once
 	)
-	cleanup := func() {
+	// cleanClose reports whether the peer closed deliberately (a page close or
+	// reload sends a close frame) rather than dropping the connection. A
+	// deliberate close gets the short CloseGrace so the multiplexer client
+	// attached to the session quits promptly.
+	var cleanClose bool
+	cleanup := func(clean bool) {
 		closeOnce.Do(func() {
 			sessMu.Lock()
-			defer sessMu.Unlock()
-			if detach != nil {
-				detach()
-				detach = nil
-			}
+			s := curSess
+			d := detach
+			detach = nil
 			curSess = nil
+			sessMu.Unlock()
+			if d != nil {
+				d()
+			}
+			if clean && s != nil {
+				s.MarkClientClosed(store.CloseGrace)
+			}
 		})
 	}
-	defer cleanup()
+	defer func() { cleanup(cleanClose) }()
 
 	attach := func(sess *session.Session) {
 		sessMu.Lock()
@@ -100,7 +110,7 @@ func ServeWS(ctx context.Context, conn *websocket.Conn, store *session.Store) {
 			OnError: func() {
 				// Delivery stopped — a write failed or the client fell too far
 				// behind. Drop the connection so it reconnects and resumes.
-				cleanup()
+				cleanup(false)
 				_ = conn.Close(websocket.StatusTryAgainLater, "output backpressure")
 			},
 		})
@@ -117,6 +127,7 @@ func ServeWS(ctx context.Context, conn *websocket.Conn, store *session.Store) {
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
+			cleanClose = websocket.CloseStatus(err) != -1
 			return
 		}
 		switch typ {

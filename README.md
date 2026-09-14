@@ -72,6 +72,7 @@ The `WT_*` variable names match the original where the meaning is the same.
 | `WT_FILES_ROOT` | `$HOME` | File API jail root |
 | `WT_NO_CACHE` | unset | Set to disable static-asset caching — for dev/test instances |
 | `WT_IDLE_TIMEOUT` | `1800` | Seconds a session with no attached client survives before it is reaped (`0` disables) |
+| `WT_CLOSE_TIMEOUT` | `10` | Seconds after a deliberate client close before that session is reaped (falls back to `WT_IDLE_TIMEOUT` when `0`) |
 
 `WT_PASSWORD` / `WT_PASSWORD_HASH` are **not implemented yet** — see Status.
 

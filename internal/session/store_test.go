@@ -266,3 +266,22 @@ func TestReapKeepsOrphansWhenDisabled(t *testing.T) {
 		t.Fatal("session reaped with IdleGrace disabled")
 	}
 }
+
+// TestMarkClientClosedUsesShortGrace: a deliberate close is reaped on the short
+// CloseGrace, while an abrupt drop waits out the long IdleGrace.
+func TestMarkClientClosedUsesShortGrace(t *testing.T) {
+	st := NewStore(nil, "")
+	st.IdleGrace = time.Hour
+	st.CloseGrace = time.Second
+
+	deliberate := idleSession("deliberate", time.Now().Add(-2*time.Second))
+	deliberate.MarkClientClosed(st.CloseGrace)
+	if !deliberate.killIfIdle(st.IdleGrace) {
+		t.Fatal("deliberate close was not reaped on the short grace")
+	}
+
+	abrupt := idleSession("abrupt", time.Now().Add(-2*time.Second))
+	if abrupt.killIfIdle(st.IdleGrace) {
+		t.Fatal("abrupt drop was reaped before the idle grace elapsed")
+	}
+}
