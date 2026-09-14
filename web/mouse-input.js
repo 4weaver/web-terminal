@@ -55,6 +55,10 @@ export function attachMouseInput(container, terminal, sendInput) {
     sendInput(encodeMouseClick(button, "press", col, row, modsOf(event)));
     // else ghostty's selection manager also paints a selection under the click
     event.preventDefault();
+    // stopPropagation also swallows ghostty's canvas mousedown, the only thing
+    // that focuses the hidden textarea — without it the OS IME has no editable
+    // target and composition goes nowhere. Focus it ourselves.
+    terminal.textarea?.focus();
     event.stopPropagation();
   };
 
@@ -72,12 +76,16 @@ export function attachMouseInput(container, terminal, sendInput) {
     if (!trackingActive(terminal)) return;
     const now = Date.now();
     if (now - lastMotionAt < MOTION_THROTTLE_MS) return;
+    const held = heldButton !== "none";
     const anyMotion = terminal.getMode(1003);
-    const buttonMotion = terminal.getMode(1002);
-    if (!anyMotion && !(buttonMotion && heldButton !== "none")) return;
+    // A held drag must carry the button (Cb 32+), or the TUI reads it as a bare
+    // hover and never resizes. 1003 makes every motion reportable, so preferring
+    // "none" whenever it was set sent button-less motion through the whole drag.
+    if (!held && !anyMotion) return;
+    if (held && !anyMotion && !terminal.getMode(1002)) return;
     lastMotionAt = now;
     const { col, row } = cellAt(terminal, container, event.clientX, event.clientY);
-    sendInput(encodeMouseMotion(anyMotion ? "none" : heldButton, col, row, modsOf(event)));
+    sendInput(encodeMouseMotion(held ? heldButton : "none", col, row, modsOf(event)));
     event.preventDefault();
   };
 

@@ -46,6 +46,14 @@ const touchEvent = (x, y) => {
   return { touches: [touch], changedTouches: [touch], preventDefault: () => {} };
 };
 
+const mouseEvent = (x, y) => ({
+  clientX: x,
+  clientY: y,
+  button: 0,
+  preventDefault: () => {},
+  stopPropagation: () => {},
+});
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let fails = 0;
@@ -104,6 +112,23 @@ container.dispatch('touchstart', touchEvent(10, 10));
 container.dispatch('touchmove', touchEvent(10, 60));
 container.dispatch('touchend', touchEvent(10, 10));
 check('no reports while tracking is off', sent.length === 0, JSON.stringify(sent));
+
+// --- mouse: a held drag carries the button, hover does not ------------------
+// zellij turns on 1000/1002/1003 together, so 1003 being set must not downgrade
+// a held drag to a button-less hover (that is why the border never resized).
+({ container, sent } = setup({ 1002: true, 1003: true }));
+container.dispatch('mousedown', mouseEvent(10, 10));
+check('mousedown forwards a press', sent[0] === '\u001b[<0;2;1M', JSON.stringify(sent));
+container.dispatch('mousemove', mouseEvent(40, 10));
+check('drag motion keeps the held button (Cb 32)', sent[1] === '\u001b[<32;6;1M', JSON.stringify(sent));
+container.dispatch('mousemove', mouseEvent(60, 10));
+check('  motion inside the throttle window is dropped', sent.length === 2, JSON.stringify(sent));
+container.dispatch('mouseup', mouseEvent(60, 10));
+check('mouseup forwards a release', sent[2] === '\u001b[<0;8;1m', JSON.stringify(sent));
+
+({ container, sent } = setup({ 1003: true }));
+container.dispatch('mousemove', mouseEvent(40, 10));
+check('button-less hover still reports Cb 35', sent[0] === '\u001b[<35;6;1M', JSON.stringify(sent));
 
 console.log(fails === 0 ? '\nALL PASS' : `\n${fails} FAILED`);
 process.exit(fails === 0 ? 0 : 1);
