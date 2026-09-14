@@ -9,6 +9,7 @@
 package session
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -65,6 +66,9 @@ type Session struct {
 	listeners map[*listener]struct{}
 	// buffer is the replay ring driving disconnect survival.
 	buffer *ReplayBuffer
+	// idleSince is when the session last had zero attached clients (zero while
+	// one is attached). It drives reaping of orphaned sessions.
+	idleSince time.Time
 }
 
 type listener struct {
@@ -104,6 +108,7 @@ func (s *Store) StartSession(command []string, cols, rows uint16, title string) 
 		alive:     true,
 		listeners: map[*listener]struct{}{},
 		buffer:    NewReplayBuffer(bufferCapacityBytes),
+		idleSince: time.Now(),
 	}
 	s.mu.Lock()
 	s.sessions[sess.ID] = sess
@@ -185,6 +190,7 @@ func (s *Session) Attach(opts AttachOptions) func() {
 
 	s.mu.Lock()
 	s.listeners[l] = struct{}{}
+	s.idleSince = time.Time{}
 	alive := s.alive
 	code := s.exitCode
 	s.mu.Unlock()
@@ -203,7 +209,37 @@ func (s *Session) Attach(opts AttachOptions) func() {
 func (s *Session) removeListener(l *listener) {
 	s.mu.Lock()
 	delete(s.listeners, l)
+	if len(s.listeners) == 0 {
+		s.idleSince = time.Now()
+	}
 	s.mu.Unlock()
+}
+
+// OrphanedFor reports whether the session has had no attached client for at
+// least grace.
+func (s *Session) OrphanedFor(grace time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.orphanedLocked(grace)
+}
+
+func (s *Session) orphanedLocked(grace time.Duration) bool {
+	return !s.idleSince.IsZero() && time.Since(s.idleSince) >= grace
+}
+
+// killIfOrphaned kills the session's process if it has had no attached client
+// for at least grace, reporting whether it did. The check and the kill share one
+// lock, so an Attach cannot slip in between and be reaped under it.
+func (s *Session) killIfOrphaned(grace time.Duration) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.orphanedLocked(grace) {
+		return false
+	}
+	if s.handle != nil {
+		_ = s.handle.Kill()
+	}
+	return true
 }
 
 // Write sends client input to the PTY.
@@ -247,6 +283,10 @@ type Store struct {
 	DefaultCommand []string
 	// FilesRoot is the root exposed by the file API.
 	FilesRoot string
+	// IdleGrace is how long a session with no attached client survives before
+	// Reap kills it (0 disables). Disconnect survival needs a grace window; an
+	// orphaned session would otherwise hold its PTY child alive forever.
+	IdleGrace time.Duration
 }
 
 // NewStore creates an empty session store.
@@ -269,15 +309,37 @@ func (s *Store) GetLive(id string) (*Session, bool) {
 	return sess, true
 }
 
-// Reap removes sessions that have exited, keeping the picker honest.
+// Reap removes exited sessions and, when IdleGrace is set, kills sessions that
+// have had no attached client for that long. It keeps the picker honest and
+// stops orphaned sessions (and their PTY children) from accumulating.
 func (s *Store) Reap() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, sess := range s.sessions {
 		if !sess.Alive() {
 			delete(s.sessions, id)
+			continue
+		}
+		if s.IdleGrace > 0 && sess.killIfOrphaned(s.IdleGrace) {
+			delete(s.sessions, id)
 		}
 	}
+}
+
+// StartReaper reaps exited and orphaned sessions on an interval until ctx ends.
+func (s *Store) StartReaper(ctx context.Context, interval time.Duration) {
+	go func() {
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.Reap()
+			}
+		}
+	}()
 }
 
 // List returns the live sessions.

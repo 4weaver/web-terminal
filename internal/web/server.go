@@ -36,6 +36,9 @@ type Config struct {
 	// conditional request is answered 304 forever — the browser keeps a stale
 	// frontend after a redeploy. Turn this on for a dev/test instance.
 	NoCache bool
+	// IdleTimeout is how long a session with no attached client survives before
+	// it is reaped (WT_IDLE_TIMEOUT seconds; 0 disables).
+	IdleTimeout time.Duration
 	// AllowedOrigins is checked on WebSocket upgrade; empty allows same-origin only.
 	AllowedOrigins []string
 }
@@ -53,6 +56,11 @@ func LoadConfig() (Config, error) {
 		return cfg, errors.New("WT_PORT must be a valid port number")
 	}
 	cfg.Port = port
+	idleSeconds, err := strconv.Atoi(envOr("WT_IDLE_TIMEOUT", "1800"))
+	if err != nil || idleSeconds < 0 {
+		return cfg, errors.New("WT_IDLE_TIMEOUT must be a non-negative number of seconds")
+	}
+	cfg.IdleTimeout = time.Duration(idleSeconds) * time.Second
 	if origins := os.Getenv("WT_ALLOWED_ORIGINS"); origins != "" {
 		for _, o := range strings.Split(origins, ",") {
 			if o = strings.TrimSpace(o); o != "" {

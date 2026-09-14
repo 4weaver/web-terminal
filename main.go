@@ -51,6 +51,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	store.IdleGrace = cfg.IdleTimeout
+	store.StartReaper(ctx, 30*time.Second)
+
 	go func() {
 		log.Printf("web-terminal-go listening on http://%s (static=%q, sessions=%d)",
 			srv.Addr, cfg.StaticDir, len(store.List()))

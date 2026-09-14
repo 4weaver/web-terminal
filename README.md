@@ -71,6 +71,7 @@ The `WT_*` variable names match the original where the meaning is the same.
 | `WT_STATIC_DIR` | `web` | Directory serving the frontend |
 | `WT_FILES_ROOT` | `$HOME` | File API jail root |
 | `WT_NO_CACHE` | unset | Set to disable static-asset caching — for dev/test instances |
+| `WT_IDLE_TIMEOUT` | `1800` | Seconds a session with no attached client survives before it is reaped (`0` disables) |
 
 `WT_PASSWORD` / `WT_PASSWORD_HASH` are **not implemented yet** — see Status.
 
@@ -81,7 +82,10 @@ Working and verified:
 - PTY sessions via `creack/pty`; output pumped into a bounded 4 MB replay buffer.
 - **Disconnect-surviving sessions** — the server owns the PTY. A reconnecting
   client sends its last byte offset and receives exactly the bytes it missed.
-  Verified end to end (`cmd/wstest`).
+  Verified end to end (`cmd/wstest`). A reload resumes the same session (the id
+  is kept in `sessionStorage`), and a session with no attached client is reaped
+  after `WT_IDLE_TIMEOUT` — otherwise every reload would leak a session, and
+  with a multiplexer command, another client on the shared render loop.
 - Binary WebSocket protocol, byte-compatible with the original: output frames
   `[0x01][uint64 offset][payload]`, input frames `[0x02][payload]`, JSON control
   messages (`hello` / `welcome` / `reset` / `resize` / `ping` / `pong` / `exit` / `error`).
@@ -104,6 +108,7 @@ node web/test/ime-keys.test.mjs                     # IME key fold (web/index.ht
 node web/test/ime-input.test.mjs                    # non-composing IME insertText (web/ime-input.js)
 node web/test/mouse-encode.test.mjs                 # SGR 1006 mouse reports (web/mouse-encode.js)
 node web/test/mouse-input.test.mjs                  # touch tap / swipe / long-press drag (web/mouse-input.js)
+node web/test/connection.test.mjs                   # reload resumes the stored session (web/connection.js)
 go run ./cmd/wstest ws://127.0.0.1:20008/ws         # protocol + resume, live server
 ```
 

@@ -205,3 +205,64 @@ func TestDetachStopsDelivery(t *testing.T) {
 		t.Fatalf("delivered %q after detach, want %q", d, "a")
 	}
 }
+
+// idleSession builds a session with no PTY, for reaping logic.
+func idleSession(id string, idleSince time.Time) *Session {
+	return &Session{
+		ID:        id,
+		alive:     true,
+		listeners: map[*listener]struct{}{},
+		buffer:    NewReplayBuffer(1024),
+		idleSince: idleSince,
+	}
+}
+
+// TestDetachMarksSessionIdle: the idle clock starts when the last client leaves.
+func TestDetachMarksSessionIdle(t *testing.T) {
+	s := newTestSession()
+	detach := s.Attach(AttachOptions{OnOutput: func(int64, []byte) error { return nil }})
+	if s.OrphanedFor(time.Hour) {
+		t.Fatal("attached session reported orphaned")
+	}
+	detach()
+	if !s.OrphanedFor(0) {
+		t.Fatal("detached session not reported orphaned")
+	}
+}
+
+// TestReapKillsOnlyOrphanedSessions: exited and long-idle sessions go; attached
+// and freshly-idled ones stay.
+func TestReapKillsOnlyOrphanedSessions(t *testing.T) {
+	st := NewStore(nil, "")
+	st.IdleGrace = time.Minute
+	now := time.Now()
+	st.sessions["old"] = idleSession("old", now.Add(-2*time.Minute))
+	st.sessions["fresh"] = idleSession("fresh", now)
+	st.sessions["attached"] = idleSession("attached", time.Time{})
+	exited := idleSession("exited", now.Add(-2*time.Minute))
+	exited.alive = false
+	st.sessions["exited"] = exited
+
+	st.Reap()
+
+	for _, id := range []string{"old", "exited"} {
+		if _, ok := st.sessions[id]; ok {
+			t.Errorf("%q was not reaped", id)
+		}
+	}
+	for _, id := range []string{"fresh", "attached"} {
+		if _, ok := st.sessions[id]; !ok {
+			t.Errorf("%q was reaped but should not have been", id)
+		}
+	}
+}
+
+// TestReapKeepsOrphansWhenDisabled: IdleGrace 0 leaves orphans alone.
+func TestReapKeepsOrphansWhenDisabled(t *testing.T) {
+	st := NewStore(nil, "")
+	st.sessions["old"] = idleSession("old", time.Now().Add(-time.Hour))
+	st.Reap()
+	if _, ok := st.sessions["old"]; !ok {
+		t.Fatal("session reaped with IdleGrace disabled")
+	}
+}

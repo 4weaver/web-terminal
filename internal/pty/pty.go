@@ -56,6 +56,10 @@ func Start(opts Options) (*Handle, *os.File, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// Close the PTY master before signalling: that SIGHUPs the session's own
+	// foreground group, so a multiplexer *client* running in the session quits.
+	// Never signal a process group — a multiplexer *server* (in its own session,
+	// shared with other clients) must not be taken down.
 	h := &Handle{PID: cmd.Process.Pid, closeF: f.Close, killF: cmd.Process.Kill}
 	go func() { _ = cmd.Wait() }()
 	return h, f, nil

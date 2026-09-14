@@ -14,6 +14,33 @@ const INITIAL_BACKOFF_MS = 300;
 const PING_INTERVAL_MS = 15_000;
 const PONG_TIMEOUT_MS = 45_000;
 
+// The session id is kept in sessionStorage so a page reload resumes the same
+// server-side session instead of asking for a new one. Without this every
+// reload leaves its predecessor alive (disconnect survival) and, when the
+// session command attaches to a multiplexer, piles another client onto the
+// shared render loop.
+const SESSION_KEY = 'web-terminal.sessionId';
+
+function readStoredSession() {
+  try {
+    return sessionStorage.getItem(SESSION_KEY) ?? undefined;
+  } catch {
+    return undefined; // storage disabled (private mode, sandboxed frame)
+  }
+}
+
+function storeSession(id) {
+  try {
+    sessionStorage.setItem(SESSION_KEY, id);
+  } catch {}
+}
+
+function clearStoredSession() {
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {}
+}
+
 const OP_OUTPUT = 0x01;
 const OP_INPUT = 0x02;
 
@@ -52,6 +79,7 @@ export class TerminalConnection {
     this.#cols = cols;
     this.#rows = rows;
     if (sessionId !== undefined) this.#sessionId = sessionId;
+    else if (this.#sessionId === undefined) this.#sessionId = readStoredSession();
     this.#open();
   }
 
@@ -113,6 +141,7 @@ export class TerminalConnection {
     switch (msg.t) {
       case 'welcome':
         this.#sessionId = msg.sessionId;
+        storeSession(msg.sessionId);
         this.#offset = msg.offset;
         this.#attempts = 0;
         this.#events.onSession(msg.sessionId);
@@ -127,6 +156,7 @@ export class TerminalConnection {
         this.#events.onLatency(this.#lastPongAt - this.#pingSentAt);
         return;
       case 'exit':
+        clearStoredSession();
         this.#events.onExit(msg.code);
         return;
       case 'error':
