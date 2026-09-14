@@ -9,7 +9,19 @@
 html, body { margin: 0; height: 100%; background: #1a1b26; color: #a9b1d6;
   font-family: system-ui, sans-serif; overflow: hidden; }
 body { display: flex; flex-direction: column; }
-#terminal { flex: 1; min-height: 0; overflow: hidden; padding: 4px; }
+/* position: relative so ghostty's hidden textarea and the IME preedit overlay
+   (both position: absolute) anchor to the terminal box, not the page. */
+#terminal { flex: 1; min-height: 0; overflow: hidden; padding: 4px; position: relative; }
+/* not selectable text: selection is what pops the magnifier/handles on the long
+   press that starts a touch drag (web/mouse-input.js) */
+#terminal,
+#terminal canvas {
+  user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+#terminal textarea { user-select: text; -webkit-user-select: text; }
+/* In-progress IME text, drawn at the cursor cell; see web/ime-preedit.js. */
+.term-preedit { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;
+  white-space: pre; font-family: inherit; color: inherit; }
 #keys { display: flex; gap: 6px; padding: 6px; overflow-x: auto;
   background: #16161e; border-top: 1px solid #292e42;
   padding-bottom: max(6px, env(safe-area-inset-bottom)); }

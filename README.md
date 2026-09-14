@@ -100,6 +100,9 @@ Working and verified:
 ```bash
 go test ./...                                       # replay buffer + boundary snap
 node web/test/ime-keys.test.mjs                     # IME key fold (web/index.html)
+node web/test/ime-input.test.mjs                    # non-composing IME insertText (web/ime-input.js)
+node web/test/mouse-encode.test.mjs                 # SGR 1006 mouse reports (web/mouse-encode.js)
+node web/test/mouse-input.test.mjs                  # touch tap / swipe / long-press drag (web/mouse-input.js)
 go run ./cmd/wstest ws://127.0.0.1:20008/ws         # protocol + resume, live server
 ```
 

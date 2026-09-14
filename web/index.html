@@ -38,6 +38,9 @@
 <script type="module">
 import { init, Terminal, FitAddon } from './vendor/ghostty-web.js';
 import { TerminalConnection } from './connection.js';
+import { attachImeInputForwarding } from './ime-input.js';
+import { attachImePreedit } from './ime-preedit.js';
+import { attachMouseInput } from './mouse-input.js';
 
 await init();
 
@@ -49,10 +52,18 @@ const term = new Terminal({
   theme: { background: '#1a1b26', foreground: '#a9b1d6' },
   scrollback: 10000,
 });
+const terminalEl = document.getElementById('terminal');
+
 term.loadAddon(fit);
-term.open(document.getElementById('terminal'));
+term.open(terminalEl);
 fit.fit();
 fit.observeResize();
+
+// ghostty focuses the contenteditable container, whose beforeinput is prevented;
+// the textarea is the edit target. The editable container also gives a long press
+// the OS magnifier + selection handles, which fight the touch drag.
+term.textarea?.focus();
+terminalEl.removeAttribute('contenteditable');
 
 const enc = new TextEncoder();
 const status = document.getElementById('status');
@@ -71,6 +82,11 @@ const conn = new TerminalConnection({
 // mobile Ctrl bug lived.
 term.onData((data) => conn.sendInput(data));
 term.onResize(({ cols, rows }) => conn.sendResize(cols, rows));
+
+// input paths ghostty-web lacks: non-composing IME commits, mouse reports
+attachImeInputForwarding(terminalEl, (data) => conn.sendInput(data));
+attachImePreedit(terminalEl, term);
+attachMouseInput(terminalEl, term, (data) => conn.sendInput(data));
 
 conn.connect(term.cols, term.rows);
 
