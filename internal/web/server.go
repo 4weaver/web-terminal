@@ -38,6 +38,7 @@ type Config struct {
 	NoCache bool
 	// AllowedOrigins is checked on WebSocket upgrade; empty allows same-origin only.
 	AllowedOrigins []string
+	Appearance     Appearance
 }
 
 // LoadConfig reads WT_* environment variables.
@@ -60,6 +61,7 @@ func LoadConfig() (Config, error) {
 			}
 		}
 	}
+	cfg.Appearance = LoadAppearance()
 	return cfg, nil
 }
 
@@ -94,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWS)
 	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/config", s.handleConfig)
 	if s.cfg.StaticDir != "" {
 		var h http.Handler = http.FileServer(http.Dir(s.cfg.StaticDir))
 		if s.cfg.NoCache {
@@ -125,6 +128,19 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"ok":       true,
 		"sessions": len(s.store.List()),
 	})
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	w.Header().Set("cache-control", "no-store")
+	if r.Method == http.MethodHead {
+		return
+	}
+	_ = json.NewEncoder(w).Encode(s.cfg.Appearance)
 }
 
 // handleWS upgrades the request and runs the session protocol.

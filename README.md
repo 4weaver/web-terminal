@@ -71,6 +71,18 @@ The `WT_*` variable names match the original where the meaning is the same.
 | `WT_STATIC_DIR` | `web` | Directory serving the frontend |
 | `WT_FILES_ROOT` | `$HOME` | File API jail root |
 | `WT_NO_CACHE` | unset | Set to disable static-asset caching — for dev/test instances |
+| `WT_THEME` | `catppuccin-mocha` | Terminal palette: `catppuccin-mocha`, `tokyo-night`, `gruvbox-dark` |
+| `WT_FONT` | `lilex` | Canvas face: `lilex`, `jetbrains-mono`, `iosevka` (Iosevka Term Nerd Font Mono) |
+| `WT_FONT_SIZE` | `14` | Default cell size in px. This browser may offset it (see below). |
+| `WT_ALPHA` | unset (off) | `1` / `true` / `on` enables a transparent 2D canvas. Default is opaque. |
+
+Unknown theme/font names fall back to the defaults. The client reads these from
+`GET /api/config`.
+
+**Font size in the session** (no on-screen control): Ctrl/Cmd `+` or `=` grows,
+`-` shrinks, `0` resets to `WT_FONT_SIZE`. On the phone, latch **ctrl** on the
+key row then type `-` / `=` / `0`. Range 10–22. The offset is stored in
+`localStorage` as a delta, so changing `WT_FONT_SIZE` moves every device.
 
 `WT_PASSWORD` / `WT_PASSWORD_HASH` are **not implemented yet** — see Status.
 
@@ -87,19 +99,22 @@ Working and verified:
   messages (`hello` / `welcome` / `reset` / `resize` / `ping` / `pong` / `exit` / `error`).
 - Reconnect tail snapped to a safe repaint boundary (last newline, else start).
 - Frontend: `ghostty-web` + a minimal client with a mobile Esc/Ctrl/arrow key row.
+- Appearance: env-selected terminal palette and Nerd Font Mono face; runtime
+  font size via Ctrl/Cmd `+`/`-` (localStorage delta on `WT_FONT_SIZE`).
 
 **Not implemented** (the original has these; this fork does not yet):
 
 - Authentication. No `WT_PASSWORD`, no argon2, no Authelia integration. **Do not
   expose this beyond a trusted network.**
-- File explorer API (`/api/files`), session picker UI, herdr sidebar, theming,
-  and the full `DESIGN.md` visual system.
+- File explorer API (`/api/files`), session picker UI, herdr sidebar, and the
+  full `DESIGN.md` visual system.
 - The original's Playwright/QA suite.
 
 ## Checks
 
 ```bash
-go test ./...                                       # replay buffer + boundary snap
+go test ./...                                       # replay buffer + boundary snap + appearance env
+node web/test/appearance.test.mjs                   # theme/font catalog + size delta/hotkeys
 node web/test/ime-keys.test.mjs                     # IME key fold (web/index.html)
 node web/test/ime-input.test.mjs                    # non-composing IME insertText (web/ime-input.js)
 node web/test/mouse-encode.test.mjs                 # SGR 1006 mouse reports (web/mouse-encode.js)

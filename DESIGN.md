@@ -626,6 +626,7 @@ Verified pairs, computed programmatically from the token values in Section 2 (sR
 | No `backdrop-filter` on the scrim | Drawer / dialog (Section 7) | Blurring a live canvas is expensive on the mid-range mobile devices this app targets. A solid scrim at 64% is sufficient separation. | Deliberate rejection, not scheduled for change. |
 | Swipe-to-dismiss has no keyboard equivalent | Drawer (Section 5.7) | It is a redundant fourth dismissal route; `Escape`, the close button, and scrim tap all remain. | Permanent. Not a gap. |
 | Lazyweb / imagen / ui-ux-db research lanes skipped | Section 0 | Task-mandated network-cost skip; direction was pinned by an explicit brand reference. | Revisit if the visual direction is challenged. |
+| Three self-hosted Regular Nerd Font Mono `woff2` files | Terminal canvas (Section 3.1) | Zero-webfont rule bent so nerd icons render on phones that cannot install faces. The page loads only `WT_FONT`'s file (`font-display: swap`). | Recorded. Do not add a fourth family or a CDN. |
 
 New debt is recorded here at the moment it is accepted. Never silently.
 

@@ -5,8 +5,19 @@
  * stylesheet serves derives from that project; this file is new work.
  * Full license text: LICENSE at the repo root.
  */
+:root {
+  --term-bg: #1e1e2e;
+  --shell-bar: #181825;
+  --shell-key: #313244;
+  --shell-key-border: #45475a;
+  --shell-label: #cdd6f4;
+  --shell-latch: #89b4fa;
+  --shell-idle: #6c7086;
+  --shell-ok: #a6e3a1;
+  --shell-warn: #f9e2af;
+}
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; background: #1a1b26; color: #a9b1d6;
+html, body { margin: 0; height: 100%; background: var(--term-bg); color: var(--shell-label);
   font-family: system-ui, sans-serif; overflow: hidden; }
 body { display: flex; flex-direction: column; }
 /* position: relative so ghostty's hidden textarea and the IME preedit overlay
@@ -23,12 +34,12 @@ body { display: flex; flex-direction: column; }
 .term-preedit { position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;
   white-space: pre; font-family: inherit; color: inherit; }
 #keys { display: flex; gap: 6px; padding: 6px; overflow-x: auto;
-  background: #16161e; border-top: 1px solid #292e42;
+  background: var(--shell-bar); border-top: 1px solid var(--shell-key-border);
   padding-bottom: max(6px, env(safe-area-inset-bottom)); }
 #keys button { flex: 0 0 auto; min-width: 48px; height: 40px; font-size: 14px;
-  background: #292e42; color: #a9b1d6; border: 1px solid #3b4261;
+  background: var(--shell-key); color: var(--shell-label); border: 1px solid var(--shell-key-border);
   border-radius: 6px; touch-action: manipulation; }
-#keys button[data-active="true"] { background: #7aa2f7; color: #16161e; }
-#status { font-size: 11px; padding: 2px 8px; background: #16161e; color: #565f89; }
-#status[data-state="connected"] { color: #9ece6a; }
-#status[data-state="reconnecting"] { color: #e0af68; }
+#keys button[data-active="true"] { background: var(--shell-latch); color: var(--shell-bar); }
+#status { font-size: 11px; padding: 2px 8px; background: var(--shell-bar); color: var(--shell-idle); }
+#status[data-state="connected"] { color: var(--shell-ok); }
+#status[data-state="reconnecting"] { color: var(--shell-warn); }
